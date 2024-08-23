@@ -4,12 +4,20 @@
  Author:	Ofel
 */
 
+#include <ArticulatedTriangle2D.h>
+#include <Point2D.h>
+#include <Point3D.h>
+#include <TrigUtils.h>
+#include <TriangleSolverLib.h>
 #include <TMCStepper.h>
 #include <TMCStepper_UTILITY.h>
 #include <ArduinoSTL.h>
 #include <Arduino.h>
 #include <AccelStepper.h>
 #include <MultiStepper.h>
+
+ArticulatedTriangle2D trig(100, 100, true);
+
 
 constexpr auto L1 = 100.0; // Longitud del primer eslabón (hombro) en mm
 constexpr auto L2 = 100.0; // Longitud del segundo eslabón (codo) en mm
@@ -37,6 +45,10 @@ AccelStepper hombro(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
 AccelStepper codo(HALFSTEP, motorPin1, motorPin3, motorPin2, motorPin4);
 MultiStepper motores;
 
+double posicionActualX = 0.0;
+double posicionActualY = 0.0;
+
+
 struct Angles {
 	double theta1;
 	double theta2;
@@ -48,9 +60,11 @@ struct Coordenadas {
 };
 
 long posiciones[2]; // Array para almacenar las posiciones objetivo
+
 Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
 	// Dimensiones del tablero
-	constexpr double ladoTablero = 323.25;
+	//constexpr double ladoTablero = 323.25;
+	constexpr double ladoTablero = 320;
 	constexpr double tamanoCasilla = ladoTablero / 8.0;
 
 	// Coordenadas del centro del tablero
@@ -71,6 +85,7 @@ Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
 void realizarHoming() {
 	// Homing para el hombro
 	bool estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
+	bool levaInicial = estadoLeva;
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
 		hombro.setSpeed(-500);
@@ -101,8 +116,9 @@ void realizarHoming() {
 			codo.runSpeed();
 		}
 	}
-	codo.setCurrentPosition(0); // Establece la posición actual como cero
-	posiciones[0] = 2270;
+	codo.setCurrentPosition(0); // Establece la posición actual transitoria como cero
+	if (levaInicial==0)	{posiciones[0] = 2270;}
+	else{posiciones[0] = 2170;}
 	posiciones[1] = -770;
 	// Mover los motores a la posición deseada
 	motores.moveTo(posiciones);
@@ -117,14 +133,32 @@ void moverAPosicion(String comando) {
 	int columna = comando[0] - 'a'; // Columna [a-h]
 	int fila = comando[1] - '1';    // Fila [1-8]
 	Serial.print("Moviendo a la posicion "); Serial.print(comando); Serial.println("...");
+
 	// Convertir notación de ajedrez a coordenadas en mm desde el centro del tablero
 	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
 	double x = coord.x;
 	double y = coord.y;
 	Serial.print("Coordenadas: ("); Serial.print(x); Serial.print(", "); Serial.print(y); Serial.println(")");
 
-	// Convertir coordenadas a ángulos (cinemática inversa)
-	Angles angulos = calcularAngulos(x, y);
+	// Calcular el desplazamiento desde la posición actual
+	double deltaX = x - posicionActualX;
+	double deltaY = y - posicionActualY;
+
+	// Usar la librería ArticulatedTriangle2D para calcular los ángulos
+	trig.Target.X = x;
+	trig.Target.Y = y;
+	trig.SolveReverse();
+
+	// Verificar si la solución es válida
+	if (isnan(trig.AbsoluteAngle1) || isnan(trig.AbsoluteAngle2)) {
+		Serial.println("Error: No se pudo calcular los ángulos para la posición objetivo.");
+		return;
+	}
+
+	Angles angulos;
+	angulos.theta1 = degrees(trig.AbsoluteAngle1);
+	angulos.theta2 = degrees(trig.RelativeAngle12);
+
 	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
 
 	// Convertir ángulos a posiciones de motor (en pasos)
@@ -135,11 +169,15 @@ void moverAPosicion(String comando) {
 	// Mover los motores a la posición deseada
 	motores.moveTo(posiciones);
 	motores.runSpeedToPosition();
+
+	// Actualizar la posición actual del efector
+	posicionActualX = x;
+	posicionActualY = y;
 }
 
 long calcularPasosHombro(double theta1) {
 	double pasosPorRev = 8120 / 360;
-	long pasos = theta1 * pasosPorRev;
+	long pasos = -theta1 * pasosPorRev;
 	return pasos;
 }
 
@@ -160,20 +198,36 @@ Angles calcularAngulos(double x, double y) {
 	angulos1.theta2 *= 180.0 / M_PI;
 	angulos2.theta1 *= 180.0 / M_PI;
 	angulos2.theta2 *= 180.0 / M_PI;
+	Serial.print("Angulos 1: "); Serial.print(angulos1.theta1); Serial.print(", "); Serial.println(angulos1.theta2);
+	Serial.print("Angulos 2: "); Serial.print(angulos2.theta1); Serial.print(", "); Serial.println(angulos2.theta2);
 
-	// Seleccionar el ángulo del hombro menor
-	if (angulos1.theta1 < angulos2.theta1) {
-		return angulos1;
+	// si el ángulo es negativo
+	if (angulos1.theta1 < 0)
+	{
+		// Seleccionar el ángulo del hombro mayor
+		if (angulos1.theta1 > angulos2.theta1) {
+			return angulos1;
+		}
+		else {
+			return angulos2;
+		}
 	}
-	else {
-		return angulos2;
+	else
+	{
+		// Seleccionar el ángulo del hombro menor
+		if (angulos1.theta1 < angulos2.theta1) {
+			return angulos1;
+		}
+		else {
+			return angulos2;
+		}
+
 	}
 }
 
-
 long calcularPasosCodo(double theta2) {
 	double pasosPorRev = 4096 / 360;
-	long pasos = theta2 * pasosPorRev;
+	long pasos = -theta2 * pasosPorRev;
 	return pasos;
 }
 
