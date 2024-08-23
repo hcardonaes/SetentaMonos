@@ -15,6 +15,8 @@
 #include <Arduino.h>
 #include <AccelStepper.h>
 #include <MultiStepper.h>
+#include <vector>
+
 
 ArticulatedTriangle2D trig(100, 100, true);
 
@@ -59,6 +61,11 @@ struct Coordenadas {
 	double y;
 };
 
+struct Punto {
+	double x;
+	double y;
+};
+
 long posiciones[2]; // Array para almacenar las posiciones objetivo
 
 Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
@@ -82,9 +89,52 @@ Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
 	return coord;
 }
 
+std::vector<Punto> bresenham(double x0, double y0, double x1, double y1) {
+	std::vector<Punto> puntos;
+	int dx = abs(x1 - x0);
+	int dy = abs(y1 - y0);
+	int sx = (x0 < x1) ? 1 : -1;
+	int sy = (y0 < y1) ? 1 : -1;
+	int err = dx - dy;
+
+	while (true) {
+		puntos.push_back({ x0, y0 });
+		if (x0 == x1 && y0 == y1) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x0 += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y0 += sy;
+		}
+	}
+	return puntos;
+}
+
+
 void realizarHoming() {
+
+	// Homing para el codo
+	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
+	if (estadoLeva == LOW) {
+		// Mover el motor hasta que se active el fin de carrera
+		codo.setSpeed(500);
+		while (digitalRead(LEVA_CODO_PIN) == LOW) {
+			codo.runSpeed();
+		}
+	}
+	else {
+		codo.setSpeed(-500);
+		while (digitalRead(LEVA_CODO_PIN) == HIGH) {
+			codo.runSpeed();
+		}
+	}
+	codo.setCurrentPosition(0); // Establece la posición actual transitoria como cero
+
 	// Homing para el hombro
-	bool estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
+	estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
 	bool levaInicial = estadoLeva;
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
@@ -101,22 +151,7 @@ void realizarHoming() {
 	}
 	hombro.setCurrentPosition(0); // Establece la posición actual como cero
 
-	// Homing para el codo
-	estadoLeva = digitalRead(LEVA_CODO_PIN);
-	if (estadoLeva == LOW) {
-		// Mover el motor hasta que se active el fin de carrera
-		codo.setSpeed(500);
-		while (digitalRead(LEVA_CODO_PIN) == LOW) {
-			codo.runSpeed();
-		}
-	}
-	else {
-		codo.setSpeed(-500);
-		while (digitalRead(LEVA_CODO_PIN) == HIGH) {
-			codo.runSpeed();
-		}
-	}
-	codo.setCurrentPosition(0); // Establece la posición actual transitoria como cero
+
 	if (levaInicial==0)	{posiciones[0] = 2270;}
 	else{posiciones[0] = 2170;}
 	posiciones[1] = -770;
@@ -138,42 +173,23 @@ void moverAPosicion(String comando) {
 	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
 	double x = coord.x;
 	double y = coord.y;
-	Serial.print("Coordenadas: ("); Serial.print(x); Serial.print(", "); Serial.print(y); Serial.println(")");
 
-	// Calcular el desplazamiento desde la posición actual
-	double deltaX = x - posicionActualX;
-	double deltaY = y - posicionActualY;
+	// Generar puntos intermedios usando el algoritmo de Bresenham
+	std::vector<Punto> puntos = bresenham(posicionActualX, posicionActualY, x, y);
 
-	// Usar la librería ArticulatedTriangle2D para calcular los ángulos
-	trig.Target.X = x;
-	trig.Target.Y = y;
-	trig.SolveReverse();
-
-	// Verificar si la solución es válida
-	if (isnan(trig.AbsoluteAngle1) || isnan(trig.AbsoluteAngle2)) {
-		Serial.println("Error: No se pudo calcular los ángulos para la posición objetivo.");
-		return;
+	// Mover el efector a través de los puntos generados
+	for (const auto& punto : puntos) {
+		trig.Target.X = punto.x;
+		trig.Target.Y = punto.y;
+		trig.SolveReverse();
+		moverMotores();
 	}
-
-	Angles angulos;
-	angulos.theta1 = degrees(trig.AbsoluteAngle1);
-	angulos.theta2 = degrees(trig.RelativeAngle12);
-
-	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
-
-	// Convertir ángulos a posiciones de motor (en pasos)
-	posiciones[0] = calcularPasosHombro(angulos.theta1);
-	posiciones[1] = calcularPasosCodo(angulos.theta2);
-	Serial.print("Pasos: ("); Serial.print(posiciones[0]); Serial.print(", "); Serial.print(posiciones[1]); Serial.println(")");
-
-	// Mover los motores a la posición deseada
-	motores.moveTo(posiciones);
-	motores.runSpeedToPosition();
 
 	// Actualizar la posición actual del efector
 	posicionActualX = x;
 	posicionActualY = y;
 }
+
 
 long calcularPasosHombro(double theta1) {
 	double pasosPorRev = 8120 / 360;
@@ -283,6 +299,68 @@ int contarPasosRevolucionCodo() {
 	return pasosPorRevolucion;
 }
 
+void moverOrtogonal(String comando) {
+	// Convertir notación de ajedrez a coordenadas en mm desde el centro del tablero
+	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
+	double x = coord.x;
+	double y = coord.y;
+
+	// Movimiento horizontal
+	if (posicionActualX != x) {
+		trig.Target.X = x;
+		trig.Target.Y = posicionActualY;
+		trig.SolveReverse();
+		moverMotores();
+		posicionActualX = x;
+	}
+
+	// Movimiento vertical
+	if (posicionActualY != y) {
+		trig.Target.X = posicionActualX;
+		trig.Target.Y = y;
+		trig.SolveReverse();
+		moverMotores();
+		posicionActualY = y;
+	}
+}
+
+void moverOblicuo(String comando) {
+	// Convertir notación de ajedrez a coordenadas en mm desde el centro del tablero
+	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
+	double x = coord.x;
+	double y = coord.y;
+
+	// Movimiento diagonal
+	trig.Target.X = x;
+	trig.Target.Y = y;
+	trig.SolveReverse();
+	moverMotores();
+	posicionActualX = x;
+	posicionActualY = y;
+}
+
+void moverMotores() {
+	// Verificar si la solución es válida
+	if (isnan(trig.AbsoluteAngle1) || isnan(trig.AbsoluteAngle2)) {
+		Serial.println("Error: No se pudo calcular los ángulos para la posición objetivo.");
+		return;
+	}
+
+	Angles angulos;
+	angulos.theta1 = degrees(trig.AbsoluteAngle1);
+	angulos.theta2 = degrees(trig.RelativeAngle12);
+
+	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
+
+	// Convertir ángulos a posiciones de motor (en pasos)
+	posiciones[0] = calcularPasosHombro(angulos.theta1);
+	posiciones[1] = calcularPasosCodo(angulos.theta2);
+	Serial.print("Pasos: ("); Serial.print(posiciones[0]); Serial.print(", "); Serial.print(posiciones[1]); Serial.println(")");
+
+	// Mover los motores a la posición deseada
+	motores.moveTo(posiciones);
+	motores.runSpeedToPosition();
+}
 
 
 void setup() {
@@ -305,16 +383,10 @@ void setup() {
 	pinMode(LEVA_CODO_PIN, INPUT_PULLUP);
 
 	// Configuración inicial de los motores
-	hombro.setMaxSpeed(1000.0);
-	hombro.setAcceleration(500.0);
-	codo.setMaxSpeed(1000.0);
-	codo.setAcceleration(500.0);
-	// Calcular los pasos por revolución para el motor del hombro
-	//long pasosPorRevolucionHombro = contarPasosRevolucionHombro();
-	//Serial.print("Pasos por revolucion del hombro: "); Serial.println(pasosPorRevolucionHombro);
-	// calcular los pasos por revolución para el motor del codo
-	//long pasosPorRevolucionCodo = contarPasosRevolucionCodo();
-	//Serial.print("Pasos por revolucion del codo: "); Serial.println(pasosPorRevolucionCodo);
+	hombro.setMaxSpeed(300);
+	hombro.setAcceleration(300);
+	codo.setMaxSpeed(300);
+	codo.setAcceleration(300);
 
 	// Add the motores to the MultiStepper object
 	motores.addStepper(hombro); // position '0'
@@ -322,6 +394,17 @@ void setup() {
 
 	// Homing: Mueve los motores hasta posicionarse en el origen
 	realizarHoming();
+	delay(1000);
+	// Ajustar la posición inicial del efector al centro de la casilla d4
+	Coordenadas coordInicial = calcularCoordenadasDesdeCentro("d4");
+	posicionActualX = coordInicial.x;
+	posicionActualY = coordInicial.y;
+
+	// Mover el efector al centro de la casilla d4
+	trig.Target.X = posicionActualX;
+	trig.Target.Y = posicionActualY;
+	trig.SolveReverse();
+	moverMotores();
 
 	// Espera comandos del usuario a través del puerto serie
 	Serial.println("Homing completado. Listo para recibir comandos.");
