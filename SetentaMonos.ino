@@ -49,7 +49,8 @@ MultiStepper motores;
 
 double posicionActualX = 0.0;
 double posicionActualY = 0.0;
-
+double anguloActualHombro = 0.0; // Ángulo actual del hombro
+double anguloActualCodo = 0.0;   // Ángulo actual del codo
 
 struct Angles {
 	double theta1;
@@ -113,6 +114,16 @@ std::vector<Punto> bresenham(double x0, double y0, double x1, double y1) {
 	return puntos;
 }
 
+double suavizarAngulo(double nuevoAngulo, double anguloActual) {
+	double diferencia = nuevoAngulo - anguloActual;
+	if (diferencia > 180) {
+		nuevoAngulo -= 360;
+	}
+	else if (diferencia < -180) {
+		nuevoAngulo += 360;
+	}
+	return nuevoAngulo;
+}
 
 void realizarHoming() {
 
@@ -189,11 +200,15 @@ void moverAPosicion(String comando) {
 	posicionActualX = x;
 	posicionActualY = y;
 }
-
-
 long calcularPasosHombro(double theta1) {
 	double pasosPorRev = 8120 / 360;
 	long pasos = -theta1 * pasosPorRev;
+	return pasos;
+}
+
+long calcularPasosCodo(double theta2) {
+	double pasosPorRev = 4096 / 360;
+	long pasos = -theta2 * pasosPorRev;
 	return pasos;
 }
 
@@ -241,104 +256,6 @@ Angles calcularAngulos(double x, double y) {
 	}
 }
 
-long calcularPasosCodo(double theta2) {
-	double pasosPorRev = 4096 / 360;
-	long pasos = -theta2 * pasosPorRev;
-	return pasos;
-}
-
-int contarPasosRevolucionHombro() {
-	int pasosPorRevolucion = 0;
-	hombro.setMaxSpeed(500);
-	//detectar estado de la leva
-	bool estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
-	if (estadoLeva == LOW) {
-		// Mover el motor hasta que se active el fin de carrera
-		hombro.setSpeed(500);
-		while (digitalRead(LEVA_HOMBRO_PIN) == LOW) {
-			hombro.runSpeed();
-		}
-	}
-	Serial.println("Fin de carrera detectado");
-	// Guardar la posición inicial
-	hombro.setCurrentPosition(0);
-
-	// Continuar moviendo el motor para completar una revolución
-	while (digitalRead(LEVA_HOMBRO_PIN) == HIGH || hombro.currentPosition() == 0) {
-		hombro.setSpeed(500);
-		hombro.runSpeed();
-	}
-	pasosPorRevolucion = hombro.currentPosition();
-	// Devolver el número total de pasos
-	return pasosPorRevolucion;
-}
-
-int contarPasosRevolucionCodo() {
-	int pasosPorRevolucion = 0;
-	codo.setMaxSpeed(500);
-	//detectar estado de la leva
-	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
-	if (estadoLeva == LOW) {
-		// Mover el motor hasta que se active el fin de carrera
-		codo.setSpeed(500);
-		while (digitalRead(LEVA_CODO_PIN) == LOW) {
-			codo.runSpeed();
-		}
-	}
-	Serial.println("Fin de carrera detectado");
-	// Guardar la posición inicial
-	codo.setCurrentPosition(0);
-
-	// Continuar moviendo el motor para completar una revolución
-	while (digitalRead(LEVA_CODO_PIN) == HIGH || codo.currentPosition() == 0) {
-		codo.setSpeed(500);
-		codo.runSpeed();
-	}
-	pasosPorRevolucion = codo.currentPosition();
-	// Devolver el número total de pasos
-	return pasosPorRevolucion;
-}
-
-void moverOrtogonal(String comando) {
-	// Convertir notación de ajedrez a coordenadas en mm desde el centro del tablero
-	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
-	double x = coord.x;
-	double y = coord.y;
-
-	// Movimiento horizontal
-	if (posicionActualX != x) {
-		trig.Target.X = x;
-		trig.Target.Y = posicionActualY;
-		trig.SolveReverse();
-		moverMotores();
-		posicionActualX = x;
-	}
-
-	// Movimiento vertical
-	if (posicionActualY != y) {
-		trig.Target.X = posicionActualX;
-		trig.Target.Y = y;
-		trig.SolveReverse();
-		moverMotores();
-		posicionActualY = y;
-	}
-}
-
-void moverOblicuo(String comando) {
-	// Convertir notación de ajedrez a coordenadas en mm desde el centro del tablero
-	Coordenadas coord = calcularCoordenadasDesdeCentro(comando);
-	double x = coord.x;
-	double y = coord.y;
-
-	// Movimiento diagonal
-	trig.Target.X = x;
-	trig.Target.Y = y;
-	trig.SolveReverse();
-	moverMotores();
-	posicionActualX = x;
-	posicionActualY = y;
-}
-
 void moverMotores() {
 	// Verificar si la solución es válida
 	if (isnan(trig.AbsoluteAngle1) || isnan(trig.AbsoluteAngle2)) {
@@ -350,6 +267,10 @@ void moverMotores() {
 	angulos.theta1 = degrees(trig.AbsoluteAngle1);
 	angulos.theta2 = degrees(trig.RelativeAngle12);
 
+	// Suavizar cambios bruscos en los ángulos
+	angulos.theta1 = suavizarAngulo(angulos.theta1, anguloActualHombro);
+	angulos.theta2 = suavizarAngulo(angulos.theta2, anguloActualCodo);
+
 	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
 
 	// Convertir ángulos a posiciones de motor (en pasos)
@@ -357,12 +278,14 @@ void moverMotores() {
 	posiciones[1] = calcularPasosCodo(angulos.theta2);
 	Serial.print("Pasos: ("); Serial.print(posiciones[0]); Serial.print(", "); Serial.print(posiciones[1]); Serial.println(")");
 
-	// Mover los motores a la posición deseada
+	// Mover los motores a las posiciones calculadas
 	motores.moveTo(posiciones);
 	motores.runSpeedToPosition();
+
+	// Actualizar los ángulos actuales
+	anguloActualHombro = angulos.theta1;
+	anguloActualCodo = angulos.theta2;
 }
-
-
 void setup() {
 	Serial.begin(115200);
 	SERIAL_PORT.begin(115200); // Configura la comunicación con el TMC2209
