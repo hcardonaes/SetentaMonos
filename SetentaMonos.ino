@@ -7,7 +7,7 @@
 #include <ArticulatedTriangle2D.h>
 #include <Point2D.h>
 #include <Point3D.h>
-#include <TrigUtils.h>
+//#include <TrigUtils.h>
 #include <TriangleSolverLib.h>
 #include <TMCStepper.h>
 #include <TMCStepper_UTILITY.h>
@@ -16,10 +16,95 @@
 #include <AccelStepper.h>
 #include <MultiStepper.h>
 #include <vector>
+#include <queue>
+
+struct Nodo {
+	int fila, columna;
+	std::vector<Nodo> camino;
+};
+
+struct Coordenadas {
+	double x;
+	double y;
+};
+
+struct Angles {
+	double theta1;
+	double theta2;
+};
+
+struct Punto {
+	double x;
+	double y;
+};
+
+const int TAMANO_TABLERO = 8;
+char tablero[TAMANO_TABLERO][TAMANO_TABLERO];
+
+bool esMovimientoValidoCaballo(int filaInicio, int columnaInicio, int filaFin, int columnaFin) {
+	int dx = abs(filaFin - filaInicio);
+	int dy = abs(columnaFin - columnaInicio);
+	return (dx == 2 && dy == 1) || (dx == 1 && dy == 2);
+}
+
+bool esPosicionLibre(int fila, int columna) {
+	return tablero[fila][columna] == ' ';
+}
+
+std::vector<Nodo> encontrarCaminoCaballo(int filaInicio, int columnaInicio, int filaFin, int columnaFin) {
+	std::queue<Nodo> cola;
+	bool visitado[TAMANO_TABLERO][TAMANO_TABLERO] = { false };
+
+	int dx[] = { 2, 2, -2, -2, 1, 1, -1, -1 };
+	int dy[] = { 1, -1, 1, -1, 2, -2, 2, -2 };
+
+	cola.push({ filaInicio, columnaInicio, {} });
+	visitado[filaInicio][columnaInicio] = true;
+
+	while (!cola.empty()) {
+		Nodo actual = cola.front();
+		cola.pop();
+
+		if (actual.fila == filaFin && actual.columna == columnaFin) {
+			return actual.camino;
+		}
+
+		for (int i = 0; i < 8; ++i) {
+			int nuevaFila = actual.fila + dx[i];
+			int nuevaColumna = actual.columna + dy[i];
+
+			if (nuevaFila >= 0 && nuevaFila < TAMANO_TABLERO && nuevaColumna >= 0 && nuevaColumna < TAMANO_TABLERO && !visitado[nuevaFila][nuevaColumna]) {
+				visitado[nuevaFila][nuevaColumna] = true;
+				Nodo siguiente = { nuevaFila, nuevaColumna, actual.camino };
+				siguiente.camino.push_back({ nuevaFila, nuevaColumna });
+				cola.push(siguiente);
+			}
+		}
+	}
+
+	return {}; // No se encontró un camino
+}
+
+void inicializarTablero() {
+	for (int i = 0; i < TAMANO_TABLERO; ++i) {
+		for (int j = 0; j < TAMANO_TABLERO; ++j) {
+			tablero[i][j] = ' '; // Espacio vacío indica que la celda está libre
+		}
+	}
+}
+
+void colocarPieza(char pieza, int fila, int columna) {
+	tablero[fila][columna] = pieza;
+}
+
+void moverPieza(int filaInicio, int columnaInicio, int filaFin, int columnaFin) {
+	char pieza = tablero[filaInicio][columnaInicio];
+	tablero[filaInicio][columnaInicio] = ' ';
+	tablero[filaFin][columnaFin] = pieza;
+}
 
 
 ArticulatedTriangle2D trig(100, 100, true);
-
 
 constexpr auto L1 = 100.0; // Longitud del primer eslabón (hombro) en mm
 constexpr auto L2 = 100.0; // Longitud del segundo eslabón (codo) en mm
@@ -52,84 +137,8 @@ double posicionActualY = 0.0;
 double anguloActualHombro = 0.0; // Ángulo actual del hombro
 double anguloActualCodo = 0.0;   // Ángulo actual del codo
 
-struct Angles {
-	double theta1;
-	double theta2;
-};
-
-struct Coordenadas {
-	double x;
-	double y;
-};
-
-struct Punto {
-	double x;
-	double y;
-};
-
-bool esMovimientoValido(Coordenadas coord) {
-	return coord.x >= -160 && coord.x <= 160 && coord.y >= -160 && coord.y <= 160;
-}
-
-std::vector<Coordenadas> movimientosCaballo(Coordenadas inicio) {
-	std::vector<Coordenadas> movimientos;
-	int dx[] = { 2, 2, -2, -2, 1, 1, -1, -1 };
-	int dy[] = { 1, -1, 1, -1, 2, -2, 2, -2 };
-
-	for (int i = 0; i < 8; ++i) {
-		Coordenadas nuevoMovimiento = { inicio.x + dx[i] * 40, inicio.y + dy[i] * 40 };
-		if (esMovimientoValido(nuevoMovimiento)) {
-			movimientos.push_back(nuevoMovimiento);
-		}
-	}
-	return movimientos;
-}
-
-void moverCaballo(String comandoInicio, String comandoFin) {
-	Coordenadas inicio = calcularCoordenadasDesdeCentro(comandoInicio);
-	Coordenadas fin = calcularCoordenadasDesdeCentro(comandoFin);
-
-	std::vector<Coordenadas> movimientos = movimientosCaballo(inicio);
-
-	bool movimientoValido = false;
-	for (const auto& movimiento : movimientos) {
-		if (abs(movimiento.x - fin.x) < 1e-6 && abs(movimiento.y - fin.y) < 1e-6) {
-			movimientoValido = true;
-			break;
-		}
-	}
-
-	if (movimientoValido) {
-		Serial.print("Moviendo el caballo de "); Serial.print(comandoInicio); Serial.print(" a "); Serial.println(comandoFin);
-		moverAPosicion(comandoFin);
-	}
-	else {
-		Serial.println("Movimiento inválido para el caballo.");
-	}
-}
 
 long posiciones[2]; // Array para almacenar las posiciones objetivo
-
-//Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
-//	// Dimensiones del tablero
-//	//constexpr double ladoTablero = 323.25;
-//	constexpr double ladoTablero = 320;
-//	constexpr double tamanoCasilla = ladoTablero / 8.0;
-//
-//	// Coordenadas del centro del tablero
-//	constexpr double centroTablero = ladoTablero / 2.0;
-//
-//	// Convertir notación de ajedrez a índices de fila y columna
-//	int columna = notacion[0] - 'a'; // Columna [a-h] -> [0-7]
-//	int fila = notacion[1] - '1';    // Fila [1-8] -> [0-7]
-//
-//	// Calcular coordenadas desde el centro del tablero
-//	double x = (columna + 0.5) * tamanoCasilla - centroTablero;
-//	double y = (fila + 0.5) * tamanoCasilla - centroTablero;
-//
-//	Coordenadas coord = { x, y };
-//	return coord;
-//}
 
 Coordenadas calcularCoordenadasDesdeCentro(String comando) {
 	int columna = comando[0] - 'a'; // Columna [a-h]
@@ -176,7 +185,7 @@ double suavizarAngulo(double nuevoAngulo, double anguloActual) {
 }
 
 void realizarHoming() {
-
+	Serial.println("Realizando homing para los motores...");
 	// Homing para el codo
 	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
 	if (estadoLeva == LOW) {
@@ -213,8 +222,8 @@ void realizarHoming() {
 	hombro.setCurrentPosition(0); // Establece la posición actual como cero
 
 
-	if (levaInicial==0)	{posiciones[0] = 2270;}
-	else{posiciones[0] = 2170;}
+	if (levaInicial == 0) { posiciones[0] = 2270; }
+	else { posiciones[0] = 2170; }
 	posiciones[1] = -770;
 	// Mover los motores a la posición deseada
 	motores.moveTo(posiciones);
@@ -250,6 +259,7 @@ void moverAPosicion(String comando) {
 	posicionActualX = x;
 	posicionActualY = y;
 }
+
 long calcularPasosHombro(double theta1) {
 	double pasosPorRev = 8120 / 360;
 	long pasos = -theta1 * pasosPorRev;
@@ -262,47 +272,28 @@ long calcularPasosCodo(double theta2) {
 	return pasos;
 }
 
-Angles calcularAngulos(double x, double y) {
-	Angles angulos1, angulos2;
-	double D = (x * x + y * y - L1 * L1 - L2 * L2) / (2 * L1 * L2);
 
-	// Calcular los dos posibles ángulos del codo
-	angulos1.theta2 = atan2(sqrt(1 - D * D), D); // Codo arriba
-	angulos2.theta2 = atan2(-sqrt(1 - D * D), D); // Codo abajo
+bool moverCaballo(String comandoInicio, String comandoFin) {
+	int columnaInicio = comandoInicio[0] - 'a';
+	int filaInicio = comandoInicio[1] - '1';
+	int columnaFin = comandoFin[0] - 'a';
+	int filaFin = comandoFin[1] - '1';
 
-	// Calcular los ángulos del hombro correspondientes
-	angulos1.theta1 = atan2(y, x) - atan2(L2 * sin(angulos1.theta2), L1 + L2 * cos(angulos1.theta2));
-	angulos2.theta1 = atan2(y, x) - atan2(L2 * sin(angulos2.theta2), L1 + L2 * cos(angulos2.theta2));
+	std::vector<Nodo> camino = encontrarCaminoCaballo(filaInicio, columnaInicio, filaFin, columnaFin);
 
-	// Convertir los ángulos a grados
-	angulos1.theta1 *= 180.0 / M_PI;
-	angulos1.theta2 *= 180.0 / M_PI;
-	angulos2.theta1 *= 180.0 / M_PI;
-	angulos2.theta2 *= 180.0 / M_PI;
-	Serial.print("Angulos 1: "); Serial.print(angulos1.theta1); Serial.print(", "); Serial.println(angulos1.theta2);
-	Serial.print("Angulos 2: "); Serial.print(angulos2.theta1); Serial.print(", "); Serial.println(angulos2.theta2);
-
-	// si el ángulo es negativo
-	if (angulos1.theta1 < 0)
-	{
-		// Seleccionar el ángulo del hombro mayor
-		if (angulos1.theta1 > angulos2.theta1) {
-			return angulos1;
+	if (!camino.empty()) {
+		Serial.print("Moviendo el caballo de "); Serial.print(comandoInicio); Serial.print(" a "); Serial.println(comandoFin);
+		for (const auto& paso : camino) {
+			moverPieza(filaInicio, columnaInicio, paso.fila, paso.columna);
+			filaInicio = paso.fila;
+			columnaInicio = paso.columna;
 		}
-		else {
-			return angulos2;
-		}
+		moverPieza(filaInicio, columnaInicio, filaFin, columnaFin);
+		return true;
 	}
-	else
-	{
-		// Seleccionar el ángulo del hombro menor
-		if (angulos1.theta1 < angulos2.theta1) {
-			return angulos1;
-		}
-		else {
-			return angulos2;
-		}
-
+	else {
+		Serial.println("No se encontró un camino válido para el caballo.");
+		return false;
 	}
 }
 
@@ -336,8 +327,12 @@ void moverMotores() {
 	anguloActualHombro = angulos.theta1;
 	anguloActualCodo = angulos.theta2;
 }
+
 void setup() {
 	Serial.begin(115200);
+	//inicializarTablero();
+	//colocarPieza('C', 0, 1); // Colocar un caballo en la posición inicial
+
 	SERIAL_PORT.begin(115200); // Configura la comunicación con el TMC2209
 
 	// Configuración del driver TMC2209
@@ -366,6 +361,7 @@ void setup() {
 	motores.addStepper(codo);    // position '1'
 
 	// Homing: Mueve los motores hasta posicionarse en el origen
+	Serial.println("Realizando homing...");
 	realizarHoming();
 	delay(1000);
 	// Ajustar la posición inicial del efector al centro de la casilla d4
@@ -391,12 +387,17 @@ void loop() {
 		if (input.startsWith("caballo")) {
 			String comandoInicio = input.substring(8, 10);
 			String comandoFin = input.substring(11, 13);
-			moverCaballo(comandoInicio, comandoFin);
+			if (!moverCaballo(comandoInicio, comandoFin)) {
+				Serial.println("No se encontró un camino válido para el caballo.");
+			}
 		}
 		else {
 			moverAPosicion(input);
 		}
 	}
 }
+
+
+
 
 
