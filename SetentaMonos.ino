@@ -67,28 +67,78 @@ struct Punto {
 	double y;
 };
 
+bool esMovimientoValido(Coordenadas coord) {
+	return coord.x >= -160 && coord.x <= 160 && coord.y >= -160 && coord.y <= 160;
+}
+
+std::vector<Coordenadas> movimientosCaballo(Coordenadas inicio) {
+	std::vector<Coordenadas> movimientos;
+	int dx[] = { 2, 2, -2, -2, 1, 1, -1, -1 };
+	int dy[] = { 1, -1, 1, -1, 2, -2, 2, -2 };
+
+	for (int i = 0; i < 8; ++i) {
+		Coordenadas nuevoMovimiento = { inicio.x + dx[i] * 40, inicio.y + dy[i] * 40 };
+		if (esMovimientoValido(nuevoMovimiento)) {
+			movimientos.push_back(nuevoMovimiento);
+		}
+	}
+	return movimientos;
+}
+
+void moverCaballo(String comandoInicio, String comandoFin) {
+	Coordenadas inicio = calcularCoordenadasDesdeCentro(comandoInicio);
+	Coordenadas fin = calcularCoordenadasDesdeCentro(comandoFin);
+
+	std::vector<Coordenadas> movimientos = movimientosCaballo(inicio);
+
+	bool movimientoValido = false;
+	for (const auto& movimiento : movimientos) {
+		if (abs(movimiento.x - fin.x) < 1e-6 && abs(movimiento.y - fin.y) < 1e-6) {
+			movimientoValido = true;
+			break;
+		}
+	}
+
+	if (movimientoValido) {
+		Serial.print("Moviendo el caballo de "); Serial.print(comandoInicio); Serial.print(" a "); Serial.println(comandoFin);
+		moverAPosicion(comandoFin);
+	}
+	else {
+		Serial.println("Movimiento inválido para el caballo.");
+	}
+}
+
 long posiciones[2]; // Array para almacenar las posiciones objetivo
 
-Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
-	// Dimensiones del tablero
-	//constexpr double ladoTablero = 323.25;
-	constexpr double ladoTablero = 320;
-	constexpr double tamanoCasilla = ladoTablero / 8.0;
+//Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
+//	// Dimensiones del tablero
+//	//constexpr double ladoTablero = 323.25;
+//	constexpr double ladoTablero = 320;
+//	constexpr double tamanoCasilla = ladoTablero / 8.0;
+//
+//	// Coordenadas del centro del tablero
+//	constexpr double centroTablero = ladoTablero / 2.0;
+//
+//	// Convertir notación de ajedrez a índices de fila y columna
+//	int columna = notacion[0] - 'a'; // Columna [a-h] -> [0-7]
+//	int fila = notacion[1] - '1';    // Fila [1-8] -> [0-7]
+//
+//	// Calcular coordenadas desde el centro del tablero
+//	double x = (columna + 0.5) * tamanoCasilla - centroTablero;
+//	double y = (fila + 0.5) * tamanoCasilla - centroTablero;
+//
+//	Coordenadas coord = { x, y };
+//	return coord;
+//}
 
-	// Coordenadas del centro del tablero
-	constexpr double centroTablero = ladoTablero / 2.0;
-
-	// Convertir notación de ajedrez a índices de fila y columna
-	int columna = notacion[0] - 'a'; // Columna [a-h] -> [0-7]
-	int fila = notacion[1] - '1';    // Fila [1-8] -> [0-7]
-
-	// Calcular coordenadas desde el centro del tablero
-	double x = (columna + 0.5) * tamanoCasilla - centroTablero;
-	double y = (fila + 0.5) * tamanoCasilla - centroTablero;
-
-	Coordenadas coord = { x, y };
-	return coord;
+Coordenadas calcularCoordenadasDesdeCentro(String comando) {
+	int columna = comando[0] - 'a'; // Columna [a-h]
+	int fila = comando[1] - '1';    // Fila [1-8]
+	double x = (columna - 3.5) * 40; // Ajuste para centrar en el tablero
+	double y = (fila - 3.5) * 40;    // Ajuste para centrar en el tablero
+	return { x, y };
 }
+
 
 std::vector<Punto> bresenham(double x0, double y0, double x1, double y1) {
 	std::vector<Punto> puntos;
@@ -334,25 +384,18 @@ void setup() {
 }
 
 void loop() {
-	//codo.moveTo(4096);
-	//codo.runToPosition();
-	//delay(3000);
-	//Serial.println("hombro empieza una vuelta.");
-	//hombro.moveTo(-8120);
-	//hombro.runToPosition();
-	//Serial.println("Hombro ha dado 8100 pasos");
-	//while (true)
-	//{
-
-	//}
-	//hombro.moveTo(0);
-
-
-
 	if (Serial.available() > 0) {
 		String input = Serial.readStringUntil('\n');
 		Serial.print("Comando recibido: "); Serial.println(input);
-		moverAPosicion(input);
+
+		if (input.startsWith("caballo")) {
+			String comandoInicio = input.substring(8, 10);
+			String comandoFin = input.substring(11, 13);
+			moverCaballo(comandoInicio, comandoFin);
+		}
+		else {
+			moverAPosicion(input);
+		}
 	}
 }
 
