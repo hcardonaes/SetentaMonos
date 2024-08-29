@@ -10,7 +10,7 @@
 //#include <TrigUtils.h>
 #include <TriangleSolverLib.h>
 #include <TMCStepper.h>
-#include <TMCStepper_UTILITY.h>
+//#include <TMCStepper_UTILITY.h>
 #include <ArduinoSTL.h>
 #include <Arduino.h>
 #include <AccelStepper.h>
@@ -190,31 +190,35 @@ void realizarHoming() {
 	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		codo.setSpeed(500);
+		codo.setSpeed(-500);
 		while (digitalRead(LEVA_CODO_PIN) == LOW) {
 			codo.runSpeed();
 		}
 	}
 	else {
-		codo.setSpeed(-500);
+		codo.setSpeed(500);
 		while (digitalRead(LEVA_CODO_PIN) == HIGH) {
 			codo.runSpeed();
 		}
 	}
 	codo.setCurrentPosition(0); // Establece la posición actual transitoria como cero
+	while (true)
+	{
 
+	}
 	// Homing para el hombro
 	estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
+	Serial.print("Estado leva hombro: "); Serial.println(estadoLeva);
 	bool levaInicial = estadoLeva;
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		hombro.setSpeed(-500);
+		hombro.setSpeed(500);
 		while (digitalRead(LEVA_HOMBRO_PIN) == LOW) {
 			hombro.runSpeed();
 		}
 	}
 	else {
-		hombro.setSpeed(500);
+		hombro.setSpeed(-500);
 		while (digitalRead(LEVA_HOMBRO_PIN) == HIGH) {
 			hombro.runSpeed();
 		}
@@ -345,6 +349,7 @@ void setup() {
 	driver.microsteps(16);   // Configurar microstepping
 	driver.en_spreadCycle(false); // Deshabilitar spreadCycle, usa StealthChop
 	driver.pwm_autoscale(true); // Activar auto scale PWM
+	driver.enn(); // Habilitar el driver
 
 	// Configuración de los pines
 	pinMode(LEVA_HOMBRO_PIN, INPUT_PULLUP);
