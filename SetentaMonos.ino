@@ -108,7 +108,7 @@ void moverCaballo(String comandoInicio, String comandoFin) {
 	}
 }
 
-long posiciones[2]; // Array para almacenar las posiciones objetivo
+long pasosMotores[2]; // Array para almacenar las pasosMotores objetivo
 
 //Coordenadas calcularCoordenadasDesdeCentro(String notacion) {
 //	// Dimensiones del tablero
@@ -178,16 +178,16 @@ double suavizarAngulo(double nuevoAngulo, double anguloActual) {
 void realizarHoming() {
 
 	// Homing para el codo
-	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
-	if (estadoLeva == LOW) {
+	bool estadoLevaCodo = digitalRead(LEVA_CODO_PIN);
+	if (estadoLevaCodo == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		codo.setSpeed(500);
+		codo.setSpeed(800);
 		while (digitalRead(LEVA_CODO_PIN) == LOW) {
 			codo.runSpeed();
 		}
 	}
 	else {
-		codo.setSpeed(-500);
+		codo.setSpeed(-800);
 		while (digitalRead(LEVA_CODO_PIN) == HIGH) {
 			codo.runSpeed();
 		}
@@ -195,31 +195,30 @@ void realizarHoming() {
 	codo.setCurrentPosition(0); // Establece la posición actual transitoria como cero
 
 	// Homing para el hombro
-	estadoLeva = digitalRead(LEVA_HOMBRO_PIN);
-	bool levaInicial = estadoLeva;
-	if (estadoLeva == LOW) {
+	bool estadoLevaHombro = digitalRead(LEVA_HOMBRO_PIN);
+	bool levaInicial = estadoLevaHombro;
+	if (estadoLevaHombro == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		hombro.setSpeed(-500);
+		hombro.setSpeed(-800);
 		while (digitalRead(LEVA_HOMBRO_PIN) == LOW) {
 			hombro.runSpeed();
 		}
 	}
 	else {
-		hombro.setSpeed(500);
+		hombro.setSpeed(800);
 		while (digitalRead(LEVA_HOMBRO_PIN) == HIGH) {
 			hombro.runSpeed();
 		}
 	}
 	hombro.setCurrentPosition(0); // Establece la posición actual como cero
-
-
-	if (levaInicial==0)	{posiciones[0] = 2270;}
-	else{posiciones[0] = 2170;}
-	posiciones[1] = -770;
-	// Mover los motores a la posición deseada
-	motores.moveTo(posiciones);
+	////if (levaInicial==0)	{pasosMotores[0] = 0;}
+	////else{pasosMotores[0] = 0;}
+	pasosMotores[0] = 3940;
+	pasosMotores[1] = 1575;
+	//// Mover los motores a la posición deseada
+	motores.moveTo(pasosMotores);
 	motores.runSpeedToPosition();
-	// Establece la posición actual como cero
+	//// Establece la posición actual como cero
 	codo.setCurrentPosition(0);
 	hombro.setCurrentPosition(0);
 
@@ -250,65 +249,22 @@ void moverAPosicion(String comando) {
 	posicionActualX = x;
 	posicionActualY = y;
 }
+
 long calcularPasosHombro(double theta1) {
-	double pasosPorRev = 8120 / 360;
-	long pasos = -theta1 * pasosPorRev;
+	double pasosPorGradoHombro = 8120 / 360;
+	long pasos = theta1 * pasosPorGradoHombro;
 	return pasos;
 }
 
 long calcularPasosCodo(double theta2) {
-	double pasosPorRev = 4096 / 360;
-	long pasos = -theta2 * pasosPorRev;
+	double pasosPorGradoCodo = 4096 / 360;
+	long pasos = -theta2 * pasosPorGradoCodo;
 	return pasos;
-}
-
-Angles calcularAngulos(double x, double y) {
-	Angles angulos1, angulos2;
-	double D = (x * x + y * y - L1 * L1 - L2 * L2) / (2 * L1 * L2);
-
-	// Calcular los dos posibles ángulos del codo
-	angulos1.theta2 = atan2(sqrt(1 - D * D), D); // Codo arriba
-	angulos2.theta2 = atan2(-sqrt(1 - D * D), D); // Codo abajo
-
-	// Calcular los ángulos del hombro correspondientes
-	angulos1.theta1 = atan2(y, x) - atan2(L2 * sin(angulos1.theta2), L1 + L2 * cos(angulos1.theta2));
-	angulos2.theta1 = atan2(y, x) - atan2(L2 * sin(angulos2.theta2), L1 + L2 * cos(angulos2.theta2));
-
-	// Convertir los ángulos a grados
-	angulos1.theta1 *= 180.0 / M_PI;
-	angulos1.theta2 *= 180.0 / M_PI;
-	angulos2.theta1 *= 180.0 / M_PI;
-	angulos2.theta2 *= 180.0 / M_PI;
-	Serial.print("Angulos 1: "); Serial.print(angulos1.theta1); Serial.print(", "); Serial.println(angulos1.theta2);
-	Serial.print("Angulos 2: "); Serial.print(angulos2.theta1); Serial.print(", "); Serial.println(angulos2.theta2);
-
-	// si el ángulo es negativo
-	if (angulos1.theta1 < 0)
-	{
-		// Seleccionar el ángulo del hombro mayor
-		if (angulos1.theta1 > angulos2.theta1) {
-			return angulos1;
-		}
-		else {
-			return angulos2;
-		}
-	}
-	else
-	{
-		// Seleccionar el ángulo del hombro menor
-		if (angulos1.theta1 < angulos2.theta1) {
-			return angulos1;
-		}
-		else {
-			return angulos2;
-		}
-
-	}
 }
 
 void moverMotores() {
 	// Verificar si la solución es válida
-	if (isnan(trig.AbsoluteAngle1) || isnan(trig.AbsoluteAngle2)) {
+	if (isnan(trig.AbsoluteAngle1) || isnan(trig.RelativeAngle12)) {
 		Serial.println("Error: No se pudo calcular los ángulos para la posición objetivo.");
 		return;
 	}
@@ -318,24 +274,25 @@ void moverMotores() {
 	angulos.theta2 = degrees(trig.RelativeAngle12);
 
 	// Suavizar cambios bruscos en los ángulos
-	angulos.theta1 = suavizarAngulo(angulos.theta1, anguloActualHombro);
-	angulos.theta2 = suavizarAngulo(angulos.theta2, anguloActualCodo);
+	//angulos.theta1 = suavizarAngulo(angulos.theta1, anguloActualHombro);
+	//angulos.theta2 = suavizarAngulo(angulos.theta2, anguloActualCodo);
 
 	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
 
-	// Convertir ángulos a posiciones de motor (en pasos)
-	posiciones[0] = calcularPasosHombro(angulos.theta1);
-	posiciones[1] = calcularPasosCodo(angulos.theta2);
-	Serial.print("Pasos: ("); Serial.print(posiciones[0]); Serial.print(", "); Serial.print(posiciones[1]); Serial.println(")");
+	// Convertir ángulos a pasos de motor (en pasos)
+	pasosMotores[0] = calcularPasosHombro(angulos.theta1);
+	pasosMotores[1] = calcularPasosCodo(angulos.theta2);
+	Serial.print("Pasos: ("); Serial.print(pasosMotores[0]); Serial.print(", "); Serial.print(pasosMotores[1]); Serial.println(")");
 
-	// Mover los motores a las posiciones calculadas
-	motores.moveTo(posiciones);
+	// Mover los motores a las pasosMotores calculadas
+	motores.moveTo(pasosMotores);
 	motores.runSpeedToPosition();
 
 	// Actualizar los ángulos actuales
 	anguloActualHombro = angulos.theta1;
 	anguloActualCodo = angulos.theta2;
 }
+
 void setup() {
 	Serial.begin(115200);
 	SERIAL_PORT.begin(115200); // Configura la comunicación con el TMC2209
@@ -356,10 +313,10 @@ void setup() {
 	pinMode(LEVA_CODO_PIN, INPUT_PULLUP);
 
 	// Configuración inicial de los motores
-	hombro.setMaxSpeed(300);
-	hombro.setAcceleration(300);
-	codo.setMaxSpeed(300);
-	codo.setAcceleration(300);
+	hombro.setMaxSpeed(800);
+	hombro.setAcceleration(800);
+	codo.setMaxSpeed(800);
+	codo.setAcceleration(800);
 
 	// Add the motores to the MultiStepper object
 	motores.addStepper(hombro); // position '0'
@@ -367,11 +324,12 @@ void setup() {
 
 	// Homing: Mueve los motores hasta posicionarse en el origen
 	realizarHoming();
-	delay(1000);
+	delay(5000);
 	// Ajustar la posición inicial del efector al centro de la casilla d4
 	Coordenadas coordInicial = calcularCoordenadasDesdeCentro("d4");
 	posicionActualX = coordInicial.x;
 	posicionActualY = coordInicial.y;
+	Serial.print("Posicion inicial: ("); Serial.print(posicionActualX); Serial.print(", "); Serial.print(posicionActualY); Serial.println(")");
 
 	// Mover el efector al centro de la casilla d4
 	trig.Target.X = posicionActualX;
@@ -382,6 +340,7 @@ void setup() {
 	// Espera comandos del usuario a través del puerto serie
 	Serial.println("Homing completado. Listo para recibir comandos.");
 }
+
 
 void loop() {
 	if (Serial.available() > 0) {
@@ -398,5 +357,6 @@ void loop() {
 		}
 	}
 }
+
 
 
