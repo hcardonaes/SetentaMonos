@@ -138,7 +138,7 @@ double anguloActualHombro = 0.0; // Ángulo actual del hombro
 double anguloActualCodo = 0.0;   // Ángulo actual del codo
 
 
-long posiciones[2]; // Array para almacenar las posiciones objetivo
+long pasosMotores[2]; // Array para almacenar las pasosMotores objetivo
 
 Coordenadas calcularCoordenadasDesdeCentro(String comando) {
 	int columna = comando[0] - 'a'; // Columna [a-h]
@@ -190,13 +190,13 @@ void realizarHoming() {
 	bool estadoLeva = digitalRead(LEVA_CODO_PIN);
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		codo.setSpeed(-500);
+		codo.setSpeed(-800);
 		while (digitalRead(LEVA_CODO_PIN) == LOW) {
 			codo.runSpeed();
 		}
 	}
 	else {
-		codo.setSpeed(500);
+		codo.setSpeed(800);
 		while (digitalRead(LEVA_CODO_PIN) == HIGH) {
 			codo.runSpeed();
 		}
@@ -212,25 +212,23 @@ void realizarHoming() {
 	bool levaInicial = estadoLeva;
 	if (estadoLeva == LOW) {
 		// Mover el motor hasta que se active el fin de carrera
-		hombro.setSpeed(500);
+		hombro.setSpeed(-800);
 		while (digitalRead(LEVA_HOMBRO_PIN) == LOW) {
 			hombro.runSpeed();
 		}
 	}
 	else {
-		hombro.setSpeed(-500);
+		hombro.setSpeed(800);
 		while (digitalRead(LEVA_HOMBRO_PIN) == HIGH) {
 			hombro.runSpeed();
 		}
 	}
 	hombro.setCurrentPosition(0); // Establece la posición actual como cero
 
-
-	if (levaInicial == 0) { posiciones[0] = 2270; }
-	else { posiciones[0] = 2170; }
-	posiciones[1] = -770;
+	pasosMotores[0] = 3940;
+	pasosMotores[1] = 1575;
 	// Mover los motores a la posición deseada
-	motores.moveTo(posiciones);
+	motores.moveTo(pasosMotores);
 	motores.runSpeedToPosition();
 	// Establece la posición actual como cero
 	codo.setCurrentPosition(0);
@@ -265,40 +263,15 @@ void moverAPosicion(String comando) {
 }
 
 long calcularPasosHombro(double theta1) {
-	double pasosPorRev = 8120 / 360;
-	long pasos = -theta1 * pasosPorRev;
+	double pasosPorGradoHombro = 15450 / 360;
+	long pasos = -theta1 * pasosPorGradoHombro;
 	return pasos;
 }
 
 long calcularPasosCodo(double theta2) {
-	double pasosPorRev = 4096 / 360;
-	long pasos = -theta2 * pasosPorRev;
+	double pasosPorGradoCodo = 3964 / 360;
+	long pasos = -theta2 * pasosPorGradoCodo;
 	return pasos;
-}
-
-
-bool moverCaballo(String comandoInicio, String comandoFin) {
-	int columnaInicio = comandoInicio[0] - 'a';
-	int filaInicio = comandoInicio[1] - '1';
-	int columnaFin = comandoFin[0] - 'a';
-	int filaFin = comandoFin[1] - '1';
-
-	std::vector<Nodo> camino = encontrarCaminoCaballo(filaInicio, columnaInicio, filaFin, columnaFin);
-
-	if (!camino.empty()) {
-		Serial.print("Moviendo el caballo de "); Serial.print(comandoInicio); Serial.print(" a "); Serial.println(comandoFin);
-		for (const auto& paso : camino) {
-			moverPieza(filaInicio, columnaInicio, paso.fila, paso.columna);
-			filaInicio = paso.fila;
-			columnaInicio = paso.columna;
-		}
-		moverPieza(filaInicio, columnaInicio, filaFin, columnaFin);
-		return true;
-	}
-	else {
-		Serial.println("No se encontró un camino válido para el caballo.");
-		return false;
-	}
 }
 
 void moverMotores() {
@@ -318,19 +291,64 @@ void moverMotores() {
 
 	Serial.print("Angulos: ("); Serial.print(angulos.theta1); Serial.print(", "); Serial.print(angulos.theta2); Serial.println(")");
 
-	// Convertir ángulos a posiciones de motor (en pasos)
-	posiciones[0] = calcularPasosHombro(angulos.theta1);
-	posiciones[1] = calcularPasosCodo(angulos.theta2);
-	Serial.print("Pasos: ("); Serial.print(posiciones[0]); Serial.print(", "); Serial.print(posiciones[1]); Serial.println(")");
+	// Convertir ángulos a pasosMotores de motor (en pasos)
+	pasosMotores[0] = calcularPasosHombro(angulos.theta1);
+	pasosMotores[1] = calcularPasosCodo(angulos.theta2);
+	Serial.print("Pasos: ("); Serial.print(pasosMotores[0]); Serial.print(", "); Serial.print(pasosMotores[1]); Serial.println(")");
 
-	// Mover los motores a las posiciones calculadas
-	motores.moveTo(posiciones);
+	// Mover los motores a las pasosMotores calculadas
+	motores.moveTo(pasosMotores);
 	motores.runSpeedToPosition();
 
 	// Actualizar los ángulos actuales
 	anguloActualHombro = angulos.theta1;
 	anguloActualCodo = angulos.theta2;
 }
+
+void recalcularFactores() {
+	// Variables para almacenar los pasos totales
+	long pasosTotalesHombro = 0;
+	long pasosTotalesCodo = 0;
+
+	// Realizar homing antes de comenzar
+	realizarHoming();
+
+	// Calcular pasos para un giro completo del hombro
+	hombro.setSpeed(500);
+	bool estadoInicialLevaHombro = digitalRead(LEVA_HOMBRO_PIN);
+	while (digitalRead(LEVA_HOMBRO_PIN) == estadoInicialLevaHombro) {
+		//hombro.move(1); // Mover un paso
+		//hombro.runToPosition();
+		//pasosTotalesHombro++;
+		hombro.runSpeed();
+		pasosTotalesHombro = hombro.currentPosition();
+	}
+	Serial.print("Pasos totales hombro (180 grados): ");
+	Serial.println(pasosTotalesHombro);
+
+	// Calcular pasos para un giro completo del codo
+	codo.setSpeed(500);
+	bool estadoInicialLevaCodo = digitalRead(LEVA_CODO_PIN);
+	while (digitalRead(LEVA_CODO_PIN) == estadoInicialLevaCodo) {
+		//codo.move(1); // Mover un paso
+		//codo.runToPosition();
+		//pasosTotalesCodo++;
+		codo.runSpeed();
+		pasosTotalesCodo = codo.currentPosition();
+	}
+	Serial.print("Pasos totales codo (180 grados): ");
+	Serial.println(pasosTotalesCodo);
+
+	// Calcular los factores de conversión
+	double pasosPorGradoHombro = pasosTotalesHombro / 180.0;
+	double pasosPorGradoCodo = pasosTotalesCodo / 180.0;
+
+	Serial.print("Pasos por grado hombro: ");
+	Serial.println(pasosPorGradoHombro);
+	Serial.print("Pasos por grado codo: ");
+	Serial.println(pasosPorGradoCodo);
+}
+
 
 void setup() {
 	Serial.begin(115200);
@@ -356,10 +374,10 @@ void setup() {
 	pinMode(LEVA_CODO_PIN, INPUT_PULLUP);
 
 	// Configuración inicial de los motores
-	hombro.setMaxSpeed(300);
-	hombro.setAcceleration(300);
-	codo.setMaxSpeed(300);
-	codo.setAcceleration(300);
+	hombro.setMaxSpeed(800);
+	hombro.setAcceleration(800);
+	codo.setMaxSpeed(800);
+	codo.setAcceleration(800);
 
 	// Add the motores to the MultiStepper object
 	motores.addStepper(hombro); // position '0'
@@ -389,14 +407,6 @@ void loop() {
 		String input = Serial.readStringUntil('\n');
 		Serial.print("Comando recibido: "); Serial.println(input);
 
-		if (input.startsWith("caballo")) {
-			String comandoInicio = input.substring(8, 10);
-			String comandoFin = input.substring(11, 13);
-			if (!moverCaballo(comandoInicio, comandoFin)) {
-				Serial.println("No se encontró un camino válido para el caballo.");
-			}
-		}
-		else {
 			moverAPosicion(input);
 		}
 	}
